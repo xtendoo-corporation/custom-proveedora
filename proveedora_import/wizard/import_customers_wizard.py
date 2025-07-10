@@ -112,143 +112,178 @@ class ImportCustomersWizard(models.TransientModel):
         # Contadores para el mensaje final
         clientes_creados = 0
         clientes_actualizados = 0
+        clientes_con_errores = 0
+        errores_detalle = []
 
         # Procesar cada fila
         for row in rows_data:
-            # Solo crear o actualizar cliente si tiene CODIGO y NOMBRE
-            codigo_raw = row.get('CODIGO', '')
-            nombre_raw = row.get('NOMBRE', '')
+            try:
+                # Solo crear o actualizar cliente si tiene CODIGO y NOMBRE
+                codigo_raw = row.get('CODIGO', '')
+                nombre_raw = row.get('NOMBRE', '')
 
-            # Convertir a string y limpiar
-            if isinstance(codigo_raw, float):
-                if codigo_raw == int(codigo_raw):
-                    codigo = str(int(codigo_raw)).strip()
+                # Convertir a string y limpiar
+                if isinstance(codigo_raw, float):
+                    if codigo_raw == int(codigo_raw):
+                        codigo = str(int(codigo_raw)).strip()
+                    else:
+                        codigo = str(codigo_raw).strip()
                 else:
-                    codigo = str(codigo_raw).strip()
-            else:
-                codigo = str(codigo_raw).strip() if codigo_raw else ''
+                    codigo = str(codigo_raw).strip() if codigo_raw else ''
 
-            if isinstance(nombre_raw, float):
-                nombre = str(nombre_raw).strip()
-            else:
-                nombre = str(nombre_raw).strip() if nombre_raw else ''
-
-            # Validar que no estén vacíos
-            if not codigo or not nombre or codigo == 'nan' or nombre == 'nan' or codigo == 'None' or nombre == 'None':
-                continue
-
-            # Buscar cliente existente por CODIGO (ref)
-            partner = partner_obj.search([('ref', '=', codigo)], limit=1)
-
-            # Buscar o crear país
-            pais = None
-            if row.get('PAIS'):
-                pais = country_obj.search([('name', 'ilike', str(row.get('PAIS')).strip())], limit=1)
-                if not pais:
-                    pais = country_obj.search([('code', 'ilike', str(row.get('PAIS')).strip())], limit=1)
-
-            # Buscar o crear provincia/estado
-            provincia = None
-            if row.get('PROVINCIA') and pais:
-                provincia = state_obj.search([
-                    ('name', 'ilike', str(row.get('PROVINCIA')).strip()),
-                    ('country_id', '=', pais.id)
-                ], limit=1)
-
-            # Preparar valores del cliente
-            vals = {
-                'name': nombre,
-                'ref': codigo,
-                'is_company': True,  # Por defecto como empresa
-                'customer_rank': 1,  # Marcar como cliente
-                'supplier_rank': 0,  # No es proveedor
-                'vat': str(row.get('CIF', '')).strip() if row.get('CIF') else False,
-                'street': str(row.get('DIRECCION', '')).strip() if row.get('DIRECCION') else False,
-                'city': str(row.get('POBLACION', '')).strip() if row.get('POBLACION') else False,
-                'zip': str(row.get('C_POSTAL', '')).strip() if row.get('C_POSTAL') else False,
-                'country_id': pais.id if pais else False,
-                'state_id': provincia.id if provincia else False,
-                'phone': str(row.get('TELEFONO1', '')).strip() if row.get('TELEFONO1') else False,
-                'mobile': str(row.get('MOVIL', '')).strip() if row.get('MOVIL') else False,
-                'email': str(row.get('EMAIL', '')).strip() if row.get('EMAIL') else False,
-                'website': str(row.get('WWW', '')).strip() if row.get('WWW') else False,
-                'active': str(row.get('ACTIVO', '')).strip().lower() != 'no',
-            }
-
-            # Campos adicionales específicos
-            if row.get('NOMBRE_COMERCIAL'):
-                vals['commercial_company_name'] = str(row.get('NOMBRE_COMERCIAL')).strip()
-
-            # El campo fax no existe en Odoo 18.0, usar phone2 o comment
-            if row.get('TELEFONO2'):
-                # Agregar al comentario si hay persona de contacto, o crear un comentario nuevo
-                telefono2_info = f"Teléfono 2: {str(row.get('TELEFONO2')).strip()}"
-                if vals.get('comment'):
-                    vals['comment'] += f"\n{telefono2_info}"
+                if isinstance(nombre_raw, float):
+                    nombre = str(nombre_raw).strip()
                 else:
-                    vals['comment'] = telefono2_info
+                    nombre = str(nombre_raw).strip() if nombre_raw else ''
 
-            if row.get('PERSONA_DE_CONTACTO'):
-                contacto_info = f"Persona de contacto: {str(row.get('PERSONA_DE_CONTACTO')).strip()}"
-                if vals.get('comment'):
-                    vals['comment'] += f"\n{contacto_info}"
-                else:
-                    vals['comment'] = contacto_info
+                # Validar que no estén vacíos
+                if not codigo or not nombre or codigo == 'nan' or nombre == 'nan' or codigo == 'None' or nombre == 'None':
+                    continue
 
-            # Crear o actualizar cliente
-            if partner:
-                partner.write(vals)
-                clientes_actualizados += 1
-            else:
-                partner = partner_obj.create(vals)
-                clientes_creados += 1
+                # Buscar cliente existente por CODIGO (ref)
+                partner = partner_obj.search([('ref', '=', codigo)], limit=1)
 
-            # Crear dirección comercial si es diferente
-            direccion_comercial = str(row.get('DIRECCION_COMERCIAL', '')).strip()
-            if direccion_comercial and direccion_comercial != vals.get('street', ''):
-                # Buscar país comercial
-                pais_comercial = None
-                if row.get('PAIS_COMERCIAL'):
-                    pais_comercial = country_obj.search([('name', 'ilike', str(row.get('PAIS_COMERCIAL')).strip())], limit=1)
-                    if not pais_comercial:
-                        pais_comercial = country_obj.search([('code', 'ilike', str(row.get('PAIS_COMERCIAL')).strip())], limit=1)
+                # Buscar o crear país
+                pais = None
+                if row.get('PAIS'):
+                    pais = country_obj.search([('name', 'ilike', str(row.get('PAIS')).strip())], limit=1)
+                    if not pais:
+                        pais = country_obj.search([('code', 'ilike', str(row.get('PAIS')).strip())], limit=1)
 
-                # Buscar provincia comercial
-                provincia_comercial = None
-                if row.get('PROVINCIA_COMERCIAL') and pais_comercial:
-                    provincia_comercial = state_obj.search([
-                        ('name', 'ilike', str(row.get('PROVINCIA_COMERCIAL')).strip()),
-                        ('country_id', '=', pais_comercial.id)
+                # Buscar o crear provincia/estado
+                provincia = None
+                if row.get('PROVINCIA') and pais:
+                    provincia = state_obj.search([
+                        ('name', 'ilike', str(row.get('PROVINCIA')).strip()),
+                        ('country_id', '=', pais.id)
                     ], limit=1)
 
-                # Crear dirección comercial como contacto hijo
-                direccion_vals = {
-                    'name': f"Dirección comercial - {nombre}",
-                    'parent_id': partner.id,
-                    'type': 'delivery',
-                    'street': direccion_comercial,
-                    'city': str(row.get('POBLACION_COMERCIAL', '')).strip() if row.get('POBLACION_COMERCIAL') else False,
-                    'zip': str(row.get('C_POSTAL_COMERCIAL', '')).strip() if row.get('C_POSTAL_COMERCIAL') else False,
-                    'country_id': pais_comercial.id if pais_comercial else False,
-                    'state_id': provincia_comercial.id if provincia_comercial else False,
-                    'phone': str(row.get('TELEFONO1_COMERCIAL', '')).strip() if row.get('TELEFONO1_COMERCIAL') else False,
-                    'mobile': str(row.get('MOVIL_COMERCIAL', '')).strip() if row.get('MOVIL_COMERCIAL') else False,
+                # Preparar valores del cliente
+                vals = {
+                    'name': nombre,
+                    'ref': codigo,
+                    'is_company': True,  # Por defecto como empresa
+                    'customer_rank': 1,  # Marcar como cliente
+                    'supplier_rank': 0,  # No es proveedor
+                    'vat': str(row.get('CIF', '')).strip() if row.get('CIF') else False,
+                    'street': str(row.get('DIRECCION', '')).strip() if row.get('DIRECCION') else False,
+                    'city': str(row.get('POBLACION', '')).strip() if row.get('POBLACION') else False,
+                    'zip': str(row.get('C_POSTAL', '')).strip() if row.get('C_POSTAL') else False,
+                    'country_id': pais.id if pais else False,
+                    'state_id': provincia.id if provincia else False,
+                    'phone': str(row.get('TELEFONO1', '')).strip() if row.get('TELEFONO1') else False,
+                    'mobile': str(row.get('MOVIL', '')).strip() if row.get('MOVIL') else False,
+                    'email': str(row.get('EMAIL', '')).strip() if row.get('EMAIL') else False,
+                    'website': str(row.get('WWW', '')).strip() if row.get('WWW') else False,
+                    'active': str(row.get('ACTIVO', '')).strip().lower() != 'no',
                 }
 
-                if row.get('PERSONA_DE_CONTACTO_COMERCIAL'):
-                    direccion_vals['comment'] = f"Persona de contacto: {str(row.get('PERSONA_DE_CONTACTO_COMERCIAL')).strip()}"
+                # Campos adicionales específicos
+                if row.get('NOMBRE_COMERCIAL'):
+                    vals['commercial_company_name'] = str(row.get('NOMBRE_COMERCIAL')).strip()
 
-                partner_obj.create(direccion_vals)
+                # El campo fax no existe en Odoo 18.0, usar phone2 o comment
+                if row.get('TELEFONO2'):
+                    # Agregar al comentario si hay persona de contacto, o crear un comentario nuevo
+                    telefono2_info = f"Teléfono 2: {str(row.get('TELEFONO2')).strip()}"
+                    if vals.get('comment'):
+                        vals['comment'] += f"\n{telefono2_info}"
+                    else:
+                        vals['comment'] = telefono2_info
+
+                if row.get('PERSONA_DE_CONTACTO'):
+                    contacto_info = f"Persona de contacto: {str(row.get('PERSONA_DE_CONTACTO')).strip()}"
+                    if vals.get('comment'):
+                        vals['comment'] += f"\n{contacto_info}"
+                    else:
+                        vals['comment'] = contacto_info
+
+                # Crear o actualizar cliente
+                if partner:
+                    partner.write(vals)
+                    clientes_actualizados += 1
+                else:
+                    partner = partner_obj.create(vals)
+                    clientes_creados += 1
+
+                # Crear dirección comercial si es diferente
+                direccion_comercial = str(row.get('DIRECCION_COMERCIAL', '')).strip()
+                if direccion_comercial and direccion_comercial != vals.get('street', ''):
+                    # Buscar país comercial
+                    pais_comercial = None
+                    if row.get('PAIS_COMERCIAL'):
+                        pais_comercial = country_obj.search([('name', 'ilike', str(row.get('PAIS_COMERCIAL')).strip())], limit=1)
+                        if not pais_comercial:
+                            pais_comercial = country_obj.search([('code', 'ilike', str(row.get('PAIS_COMERCIAL')).strip())], limit=1)
+
+                    # Buscar provincia comercial
+                    provincia_comercial = None
+                    if row.get('PROVINCIA_COMERCIAL') and pais_comercial:
+                        provincia_comercial = state_obj.search([
+                            ('name', 'ilike', str(row.get('PROVINCIA_COMERCIAL')).strip()),
+                            ('country_id', '=', pais_comercial.id)
+                        ], limit=1)
+
+                    # Crear dirección comercial como contacto hijo
+                    direccion_vals = {
+                        'name': f"Dirección comercial - {nombre}",
+                        'parent_id': partner.id,
+                        'type': 'delivery',
+                        'street': direccion_comercial,
+                        'city': str(row.get('POBLACION_COMERCIAL', '')).strip() if row.get('POBLACION_COMERCIAL') else False,
+                        'zip': str(row.get('C_POSTAL_COMERCIAL', '')).strip() if row.get('C_POSTAL_COMERCIAL') else False,
+                        'country_id': pais_comercial.id if pais_comercial else False,
+                        'state_id': provincia_comercial.id if provincia_comercial else False,
+                        'phone': str(row.get('TELEFONO1_COMERCIAL', '')).strip() if row.get('TELEFONO1_COMERCIAL') else False,
+                        'mobile': str(row.get('MOVIL_COMERCIAL', '')).strip() if row.get('MOVIL_COMERCIAL') else False,
+                    }
+
+                    if row.get('PERSONA_DE_CONTACTO_COMERCIAL'):
+                        direccion_vals['comment'] = f"Persona de contacto: {str(row.get('PERSONA_DE_CONTACTO_COMERCIAL')).strip()}"
+
+                    partner_obj.create(direccion_vals)
+
+            except Exception as e:
+                # Capturar errores individuales y continuar con el siguiente cliente
+                clientes_con_errores += 1
+                error_msg = str(e)
+
+                # Extraer información del cliente para el log de errores
+                cliente_info = f"Código: {codigo if 'codigo' in locals() else 'N/A'}, Nombre: {nombre if 'nombre' in locals() else 'N/A'}"
+
+                # Simplificar el mensaje de error para errores comunes
+                if "número de IVA" in error_msg.lower() or "vat" in error_msg.lower():
+                    error_simple = "Error de validación de IVA"
+                elif "email" in error_msg.lower():
+                    error_simple = "Error de validación de email"
+                else:
+                    error_simple = "Error de validación"
+
+                errores_detalle.append(f"{cliente_info}: {error_simple}")
+
+                # Limitar el número de errores mostrados para evitar mensajes muy largos
+                if len(errores_detalle) <= 10:
+                    continue
 
         # Mensaje de confirmación al finalizar
         message = f"Importación de clientes completada:\n• {clientes_creados} clientes creados\n• {clientes_actualizados} clientes actualizados"
+
+        if clientes_con_errores > 0:
+            message += f"\n• {clientes_con_errores} clientes con errores (omitidos)"
+            if errores_detalle:
+                message += "\n\nPrimeros errores encontrados:"
+                for error in errores_detalle[:5]:  # Mostrar solo los primeros 5 errores
+                    message += f"\n- {error}"
+                if len(errores_detalle) > 5:
+                    message += f"\n... y {len(errores_detalle) - 5} errores más"
+
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
             'params': {
                 'title': 'Importación de clientes finalizada',
                 'message': message,
-                'type': 'success',
-                'sticky': False,
+                'type': 'success' if clientes_con_errores == 0 else 'warning',
+                'sticky': True if clientes_con_errores > 0 else False,
             }
         }
