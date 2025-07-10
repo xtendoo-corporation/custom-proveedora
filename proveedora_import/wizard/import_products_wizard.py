@@ -82,14 +82,33 @@ class ImportProductsWizard(models.TransientModel):
                 continue
 
             # Buscar producto existente por CODIGO (default_code) ANTES de crear vals
-            product = product_obj.search([('default_code', '=', codigo)], limit=1)
-
             print("*" * 80)
-            print("Procesando producto:", codigo)
-            print("Descripción:", descripcion)
-            print("Porducto encontrado:", product.exists())
-            print("Producto ID:", product.id if product else "No existe")
-            print("Producto name:", product.name if product else "No existe")
+            print("Buscando producto con código:", repr(codigo))
+            print("Tipo de código:", type(codigo))
+            print("Longitud del código:", len(codigo))
+
+            # Buscar productos existentes para comparar
+            all_products_with_code = product_obj.search([('default_code', '!=', False)])
+            print("Total productos con código en sistema:", len(all_products_with_code))
+
+            # Buscar exacto
+            product = product_obj.search([('default_code', '=', codigo)], limit=1)
+            print("Búsqueda exacta resultado:", product)
+
+            # Buscar con trim por si hay espacios
+            product_trim = product_obj.search([('default_code', '=', codigo.strip())], limit=1)
+            print("Búsqueda con strip resultado:", product_trim)
+
+            # Buscar case insensitive
+            product_ilike = product_obj.search([('default_code', 'ilike', codigo)], limit=1)
+            print("Búsqueda ilike resultado:", product_ilike)
+
+            # Usar el mejor resultado encontrado
+            product = product or product_trim or product_ilike
+
+            print("Producto final seleccionado:", product)
+            if product:
+                print("Producto encontrado - ID:", product.id, "Nombre:", product.name, "Código:", product.default_code)
 
             categ = categ_obj.search([('name', '=', row.get('NIVEL1', 'Sin categoría'))], limit=1)
             if not categ:
