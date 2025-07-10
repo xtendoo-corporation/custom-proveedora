@@ -179,11 +179,21 @@ class ImportCustomersWizard(models.TransientModel):
             if row.get('NOMBRE_COMERCIAL'):
                 vals['commercial_company_name'] = str(row.get('NOMBRE_COMERCIAL')).strip()
 
+            # El campo fax no existe en Odoo 18.0, usar phone2 o comment
             if row.get('TELEFONO2'):
-                vals['fax'] = str(row.get('TELEFONO2')).strip()
+                # Agregar al comentario si hay persona de contacto, o crear un comentario nuevo
+                telefono2_info = f"Teléfono 2: {str(row.get('TELEFONO2')).strip()}"
+                if vals.get('comment'):
+                    vals['comment'] += f"\n{telefono2_info}"
+                else:
+                    vals['comment'] = telefono2_info
 
             if row.get('PERSONA_DE_CONTACTO'):
-                vals['comment'] = f"Persona de contacto: {str(row.get('PERSONA_DE_CONTACTO')).strip()}"
+                contacto_info = f"Persona de contacto: {str(row.get('PERSONA_DE_CONTACTO')).strip()}"
+                if vals.get('comment'):
+                    vals['comment'] += f"\n{contacto_info}"
+                else:
+                    vals['comment'] = contacto_info
 
             # Crear o actualizar cliente
             if partner:
