@@ -35,9 +35,13 @@ class ImportProductsWizard(models.TransientModel):
         product_obj = self.env['product.product']
         categ_obj = self.env['product.category']
         tax_obj = self.env['account.tax']
-        iva_21 = tax_obj.search([
+        iva_21_venta = tax_obj.search([
             ('description', '=', 'IVA 21% (Bienes)'),
             ('type_tax_use', '=', 'sale')
+        ], limit=1)
+        iva_21_compra = tax_obj.search([
+            ('description', '=', 'IVA 21% (Bienes)'),
+            ('type_tax_use', '=', 'purchase')
         ], limit=1)
 
         # Procesar cada fila (empezando desde la fila 1, saltando encabezados)
@@ -69,7 +73,10 @@ class ImportProductsWizard(models.TransientModel):
                 'active': not bool(row.get('ARTICULO_BLOQUEADO', False)),
                 'lst_price': precio_venta,
                 'standard_price': precio_coste,
-                'taxes_id': [(6, 0, [iva_21.id])] if iva_21 else False,
+                'taxes_id': [(6, 0, [iva_21_venta.id])] if iva_21_venta else False,
+                'supplier_taxes_id': [(6, 0, [iva_21_compra.id])] if iva_21_compra else False,
+                'invoice_policy': 'delivery',
+                'is_storable': True,
             }
             # Buscar producto por CODIGO (default_code)
             product = product_obj.search([('default_code', '=', codigo)], limit=1)
