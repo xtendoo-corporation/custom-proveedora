@@ -115,12 +115,6 @@ class ImportCustomersWizard(models.TransientModel):
 
         # Procesar cada fila
         for row in rows_data:
-            # Crear diccionario de la fila actual
-            row = {}
-            for col_idx, header in enumerate(headers):
-                if col_idx < sheet.ncols:
-                    row[header] = sheet.cell_value(row_idx, col_idx)
-
             # Solo crear o actualizar cliente si tiene CODIGO y NOMBRE
             codigo_raw = row.get('CODIGO', '')
             nombre_raw = row.get('NOMBRE', '')
