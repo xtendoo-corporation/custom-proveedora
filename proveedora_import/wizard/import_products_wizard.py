@@ -66,6 +66,18 @@ class ImportProductsWizard(models.TransientModel):
         productos_creados = 0
         productos_actualizados = 0
 
+        # Información de depuración para impuestos
+        debug_info = []
+        if iva_21_venta:
+            debug_info.append(f"IVA Venta encontrado: {iva_21_venta.name} (ID: {iva_21_venta.id})")
+        else:
+            debug_info.append("IVA Venta: NO ENCONTRADO")
+
+        if iva_21_compra:
+            debug_info.append(f"IVA Compra encontrado: {iva_21_compra.name} (ID: {iva_21_compra.id})")
+        else:
+            debug_info.append("IVA Compra: NO ENCONTRADO")
+
         # Procesar cada fila (empezando desde la fila 1, saltando encabezados)
         for row_idx in range(1, sheet.nrows):
             # Crear diccionario de la fila actual
@@ -142,7 +154,8 @@ class ImportProductsWizard(models.TransientModel):
                             'min_quantity': 1,
                         })
         # Mensaje de confirmación al finalizar
-        message = f"Importación completada:\n• {productos_creados} productos creados\n• {productos_actualizados} productos actualizados"
+        debug_message = "\n".join(debug_info)
+        message = f"Importación completada:\n• {productos_creados} productos creados\n• {productos_actualizados} productos actualizados\n\nInformación de depuración:\n{debug_message}"
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
