@@ -35,14 +35,36 @@ class ImportProductsWizard(models.TransientModel):
         product_obj = self.env['product.product']
         categ_obj = self.env['product.category']
         tax_obj = self.env['account.tax']
+
+        # Buscar impuestos de venta y compra por separado
         iva_21_venta = tax_obj.search([
-            ('description', '=', 'IVA 21% (Bienes)'),
-            ('type_tax_use', '=', 'sale')
+            ('name', 'ilike', 'IVA 21%'),
+            ('type_tax_use', '=', 'sale'),
+            ('amount', '=', 21)
         ], limit=1)
+
         iva_21_compra = tax_obj.search([
-            ('description', '=', 'IVA 21% (Bienes)'),
-            ('type_tax_use', '=', 'purchase')
+            ('name', 'ilike', 'IVA 21%'),
+            ('type_tax_use', '=', 'purchase'),
+            ('amount', '=', 21)
         ], limit=1)
+
+        # Si no encuentra por nombre, buscar por description
+        if not iva_21_venta:
+            iva_21_venta = tax_obj.search([
+                ('description', '=', 'IVA 21% (Bienes)'),
+                ('type_tax_use', '=', 'sale')
+            ], limit=1)
+
+        if not iva_21_compra:
+            iva_21_compra = tax_obj.search([
+                ('description', '=', 'IVA 21% (Bienes)'),
+                ('type_tax_use', '=', 'purchase')
+            ], limit=1)
+
+        # Contadores para el mensaje final
+        productos_creados = 0
+        productos_actualizados = 0
 
         # Procesar cada fila (empezando desde la fila 1, saltando encabezados)
         for row_idx in range(1, sheet.nrows):
@@ -82,8 +104,10 @@ class ImportProductsWizard(models.TransientModel):
             product = product_obj.search([('default_code', '=', codigo)], limit=1)
             if product:
                 product.write(vals)
+                productos_actualizados += 1
             else:
                 product = product_obj.create(vals)
+                productos_creados += 1
             # Stock inicial
             if 'L' in headers:
                 qty = row.get('L', 0)
@@ -117,4 +141,15 @@ class ImportProductsWizard(models.TransientModel):
                             'percent_price': discount,
                             'min_quantity': 1,
                         })
-        return {'type': 'ir.actions.act_window_close'}
+        # Mensaje de confirmación al finalizar
+        message = f"Importación completada:\n• {productos_creados} productos creados\n• {productos_actualizados} productos actualizados"
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'display_notification',
+            'params': {
+                'title': 'Importación finalizada',
+                'message': message,
+                'type': 'success',
+                'sticky': False,
+            }
+        }
