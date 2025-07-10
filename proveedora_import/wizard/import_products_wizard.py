@@ -84,6 +84,13 @@ class ImportProductsWizard(models.TransientModel):
             # Buscar producto existente por CODIGO (default_code) ANTES de crear vals
             product = product_obj.search([('default_code', '=', codigo)], limit=1)
 
+            print("*" * 80)
+            print("Procesando producto:", codigo)
+            print("Descripción:", descripcion)
+            print("Porducto encontrado:", product.exists())
+            print("Producto ID:", product.id if product else "No existe")
+            print("Producto name:", product.name if product else "No existe")
+
             categ = categ_obj.search([('name', '=', row.get('NIVEL1', 'Sin categoría'))], limit=1)
             if not categ:
                 categ = categ_obj.create({'name': row.get('NIVEL1', 'Sin categoría')})
