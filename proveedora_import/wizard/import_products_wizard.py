@@ -120,7 +120,7 @@ class ImportProductsWizard(models.TransientModel):
                 'taxes_id': [(6, 0, [iva_21_venta.id])] if iva_21_venta else False,
                 'supplier_taxes_id': [(6, 0, [iva_21_compra.id])] if iva_21_compra else False,
                 'invoice_policy': 'delivery',
-                'type': 'product',  # Cambiar detailed_type por type
+                'detailed_type': 'product',  # Volver a detailed_type con valor 'product'
             }
 
             # Crear o actualizar producto
