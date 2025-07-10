@@ -115,12 +115,12 @@ class ImportProductsWizard(models.TransientModel):
                 'default_code': codigo,
                 'categ_id': categ.id,
                 'active': not bool(row.get('ARTICULO_BLOQUEADO', False)),
-                'list_price': precio_venta,  # Cambiar lst_price por list_price para product.template
+                'list_price': precio_venta,
                 'standard_price': precio_coste,
                 'taxes_id': [(6, 0, [iva_21_venta.id])] if iva_21_venta else False,
                 'supplier_taxes_id': [(6, 0, [iva_21_compra.id])] if iva_21_compra else False,
                 'invoice_policy': 'delivery',
-                'detailed_type': 'product',  # Cambiar is_storable por detailed_type
+                'type': 'product',  # Cambiar detailed_type por type
             }
 
             # Crear o actualizar producto
