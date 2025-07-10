@@ -49,15 +49,15 @@ class ImportCustomersWizard(models.TransientModel):
                 else:
                     codigo = str(codigo_raw).strip()
             else:
-                codigo = str(codigo_raw).strip()
+                codigo = str(codigo_raw).strip() if codigo_raw else ''
 
             if isinstance(nombre_raw, float):
                 nombre = str(nombre_raw).strip()
             else:
-                nombre = str(nombre_raw).strip()
+                nombre = str(nombre_raw).strip() if nombre_raw else ''
 
             # Validar que no estén vacíos
-            if not codigo or not nombre or codigo == 'nan' or nombre == 'nan':
+            if not codigo or not nombre or codigo == 'nan' or nombre == 'nan' or codigo == 'None' or nombre == 'None':
                 continue
 
             # Buscar cliente existente por CODIGO (ref)
