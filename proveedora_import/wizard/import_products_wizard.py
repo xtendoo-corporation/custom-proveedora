@@ -2,7 +2,7 @@ from odoo import models, fields, api
 from odoo.exceptions import UserError
 import base64
 import io
-import pandas as pd
+import xlrd
 
 class ImportProductsWizard(models.TransientModel):
     _name = 'proveedora.import.products.wizard'
@@ -15,7 +15,11 @@ class ImportProductsWizard(models.TransientModel):
         if not self.file:
             raise UserError('Debe adjuntar un archivo.')
         data = base64.b64decode(self.file)
-        df = pd.read_excel(io.BytesIO(data))
+        workbook = xlrd.open_workbook(file_contents=data)
+        sheet = workbook.sheet_by_index(0)  # Primera hoja
+
+        # Obtener encabezados de la primera fila
+        headers = [sheet.cell_value(0, col) for col in range(sheet.ncols)]
 
         # Crear tarifas si no existen
         pricelist_obj = self.env['product.pricelist']
@@ -35,7 +39,15 @@ class ImportProductsWizard(models.TransientModel):
             ('description', '=', 'IVA 21% (Bienes)'),
             ('type_tax_use', '=', 'sale')
         ], limit=1)
-        for _, row in df.iterrows():
+
+        # Procesar cada fila (empezando desde la fila 1, saltando encabezados)
+        for row_idx in range(1, sheet.nrows):
+            # Crear diccionario de la fila actual
+            row = {}
+            for col_idx, header in enumerate(headers):
+                if col_idx < sheet.ncols:
+                    row[header] = sheet.cell_value(row_idx, col_idx)
+
             if str(row.get('ARTICULO_OBSOLETO', '')).strip().lower() == 'si':
                 continue
             # Solo crear o actualizar producto si tiene CODIGO y DESCRIPCION
@@ -66,7 +78,7 @@ class ImportProductsWizard(models.TransientModel):
             else:
                 product = product_obj.create(vals)
             # Stock inicial
-            if 'L' in df.columns:
+            if 'L' in headers:
                 qty = row.get('L', 0)
                 if qty:
                     self.env['stock.quant'].with_context(inventory_mode=True).create({
@@ -78,7 +90,7 @@ class ImportProductsWizard(models.TransientModel):
             for i in range(1, 11):
                 pvp_col = f'PVP{i}'
                 desc_col = f'DESCUENTO{i}'
-                if pvp_col in df.columns:
+                if pvp_col in headers:
                     price = row.get(pvp_col, 0)
                     if price:
                         self.env['product.pricelist.item'].create({
@@ -88,7 +100,7 @@ class ImportProductsWizard(models.TransientModel):
                             'fixed_price': price,
                             'min_quantity': 1,
                         })
-                if desc_col in df.columns:
+                if desc_col in headers:
                     discount = row.get(desc_col, 0)
                     if discount:
                         self.env['product.pricelist.item'].create({
