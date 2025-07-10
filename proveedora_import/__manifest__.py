@@ -6,6 +6,7 @@
     'summary': 'Importador de productos y tarifas desde hoja de cálculo',
     'author': 'Xtendoo Software SLU',
     'website': '',
+    'license': 'LGPL-3',
     'depends': [
         'product',
         'stock',
@@ -13,10 +14,10 @@
         'base',
     ],
     'data': [
+        'security/ir.model.access.csv',
         'wizard/import_products_wizard_view.xml',
         'views/menu.xml',
     ],
     'installable': True,
     'application': False,
 }
-
