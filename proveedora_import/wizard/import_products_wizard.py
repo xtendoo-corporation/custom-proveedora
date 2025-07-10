@@ -122,12 +122,18 @@ class ImportProductsWizard(models.TransientModel):
                 'invoice_policy': 'delivery',
             }
 
-            # Añadir el campo de tipo de producto de forma dinámica
-            if 'detailed_type' in product_obj._fields:
-                vals['detailed_type'] = 'product'
-            elif 'type' in product_obj._fields:
-                vals['type'] = 'product'
-            # Si no existe ninguno, Odoo usará el valor por defecto
+            # Intentar establecer el tipo de producto como almacenable si es posible
+            try:
+                # Verificar si existe el campo y qué valores acepta
+                if hasattr(product_obj, '_fields') and 'detailed_type' in product_obj._fields:
+                    field_selection = product_obj._fields['detailed_type'].selection
+                    if 'product' in [x[0] for x in field_selection]:
+                        vals['detailed_type'] = 'product'
+                    elif 'storable' in [x[0] for x in field_selection]:
+                        vals['detailed_type'] = 'storable'
+            except:
+                # Si hay algún error, simplemente no establecer el tipo
+                pass
 
             # Crear o actualizar producto
             if product:
