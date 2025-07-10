@@ -32,7 +32,7 @@ class ImportProductsWizard(models.TransientModel):
             pricelists[name] = pricelist
 
         # Procesar productos
-        product_obj = self.env['product.template']  # Cambiar a product.template
+        product_obj = self.env['product.product']  # Cambiar a product.product
         categ_obj = self.env['product.category']
         tax_obj = self.env['account.tax']
 
@@ -113,25 +113,13 @@ class ImportProductsWizard(models.TransientModel):
                 'default_code': codigo,
                 'categ_id': categ.id,
                 'active': not bool(row.get('ARTICULO_BLOQUEADO', False)),
-                'list_price': precio_venta,
+                'lst_price': precio_venta,
                 'standard_price': precio_coste,
                 'taxes_id': [(6, 0, [iva_21_venta.id])] if iva_21_venta else False,
                 'supplier_taxes_id': [(6, 0, [iva_21_compra.id])] if iva_21_compra else False,
                 'invoice_policy': 'delivery',
+                'type': 'product',
             }
-
-            # Intentar establecer el tipo de producto como almacenable si es posible
-            try:
-                # Verificar si existe el campo y qué valores acepta
-                if hasattr(product_obj, '_fields') and 'detailed_type' in product_obj._fields:
-                    field_selection = product_obj._fields['detailed_type'].selection
-                    if 'product' in [x[0] for x in field_selection]:
-                        vals['detailed_type'] = 'product'
-                    elif 'storable' in [x[0] for x in field_selection]:
-                        vals['detailed_type'] = 'storable'
-            except:
-                # Si hay algún error, simplemente no establecer el tipo
-                pass
 
             # Crear o actualizar producto
             if product:
