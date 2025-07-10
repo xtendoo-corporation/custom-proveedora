@@ -4,6 +4,12 @@ import base64
 import io
 import xlrd
 
+try:
+    import openpyxl
+    OPENPYXL_AVAILABLE = True
+except ImportError:
+    OPENPYXL_AVAILABLE = False
+
 class ImportCustomersWizard(models.TransientModel):
     _name = 'proveedora.import.customers.wizard'
     _description = 'Wizard para importar clientes desde Excel'
@@ -11,43 +17,92 @@ class ImportCustomersWizard(models.TransientModel):
     file = fields.Binary('Archivo Excel', required=True)
     filename = fields.Char('Nombre del archivo')
 
+    def _read_excel_file(self, data):
+        """Leer archivo Excel usando la librería apropiada según el formato"""
+
+        # Verificar el formato del archivo
+        header = data[:8]
+        is_xlsx = header.startswith(b'PK')
+        is_xls = header.startswith(b'\xd0\xcf\x11\xe0') or header.startswith(b'\x09\x08')
+
+        if is_xlsx:
+            # Archivo .xlsx - usar openpyxl
+            if not OPENPYXL_AVAILABLE:
+                raise UserError('El archivo es .xlsx pero openpyxl no está instalado. '
+                              'Por favor, convierte el archivo a .xls o instala openpyxl.')
+
+            try:
+                workbook = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
+                sheet = workbook.active
+
+                # Obtener encabezados de la primera fila
+                headers = []
+                for cell in sheet[1]:
+                    headers.append(cell.value if cell.value else '')
+
+                # Procesar filas
+                rows_data = []
+                for row in sheet.iter_rows(min_row=2, values_only=True):
+                    row_dict = {}
+                    for col_idx, value in enumerate(row):
+                        if col_idx < len(headers):
+                            row_dict[headers[col_idx]] = value
+                    rows_data.append(row_dict)
+
+                return headers, rows_data
+
+            except Exception as e:
+                raise UserError(f'Error al leer archivo .xlsx: {str(e)}')
+
+        elif is_xls:
+            # Archivo .xls - usar xlrd
+            try:
+                workbook = xlrd.open_workbook(file_contents=data)
+                sheet = workbook.sheet_by_index(0)
+
+                # Obtener encabezados de la primera fila
+                headers = [sheet.cell_value(0, col) for col in range(sheet.ncols)]
+
+                # Procesar filas
+                rows_data = []
+                for row_idx in range(1, sheet.nrows):
+                    row_dict = {}
+                    for col_idx, header in enumerate(headers):
+                        if col_idx < sheet.ncols:
+                            row_dict[header] = sheet.cell_value(row_idx, col_idx)
+                    rows_data.append(row_dict)
+
+                return headers, rows_data
+
+            except Exception as e:
+                if "BIFF2 cell record" in str(e) or "XLRDError" in str(e):
+                    raise UserError('⚠️ Error de formato de Excel\n\n'
+                                  'El archivo .xls tiene un formato que no se puede leer.\n'
+                                  'Solución:\n'
+                                  '1. Abre el archivo en Excel\n'
+                                  '2. Guárdalo como "Excel 97-2003 Workbook (*.xls)"\n'
+                                  '3. Vuelve a intentar la importación')
+                else:
+                    raise UserError(f'Error al leer archivo .xls: {str(e)}')
+        else:
+            raise UserError('El archivo no parece ser un Excel válido (.xls o .xlsx). '
+                          'Por favor, sube un archivo Excel válido.')
+
     def action_import(self):
         if not self.file:
             raise UserError('Debe adjuntar un archivo.')
 
         try:
             data = base64.b64decode(self.file)
-            # Intentar detectar si es un archivo Excel válido antes de abrirlo
             if len(data) < 512:
                 raise UserError('El archivo parece estar vacío o corrupto.')
 
-            # Verificar los primeros bytes para identificar el tipo de archivo
-            header = data[:8]
-            if header.startswith(b'PK'):
-                raise UserError('El archivo parece ser un .xlsx. Por favor, conviértelo a formato .xls (Excel 97-2003) antes de importar.')
-            elif not (header.startswith(b'\xd0\xcf\x11\xe0') or header.startswith(b'\x09\x08')):
-                raise UserError('El archivo no parece ser un Excel válido. Asegúrate de subir un archivo .xls.')
+            headers, rows_data = self._read_excel_file(data)
 
-            workbook = xlrd.open_workbook(file_contents=data)
-            sheet = workbook.sheet_by_index(0)  # Primera hoja
         except UserError:
-            # Re-lanzar los UserError que creamos nosotros
             raise
         except Exception as e:
-            error_msg = str(e)
-            if "BIFF2 cell record" in error_msg or "XLRDError" in error_msg:
-                raise UserError('⚠️ Error de formato de Excel\n\n'
-                              'El archivo tiene un formato que no se puede leer.\n'
-                              'Solución:\n'
-                              '1. Abre el archivo en Excel\n'
-                              '2. Guárdalo como "Excel 97-2003 Workbook (*.xls)"\n'
-                              '3. Vuelve a intentar la importación\n\n'
-                              'Si el problema persiste, crea un nuevo archivo Excel copiando solo los datos sin formatos.')
-            else:
-                raise UserError(f'Error inesperado al procesar el archivo: {error_msg}')
-
-        # Obtener encabezados de la primera fila
-        headers = [sheet.cell_value(0, col) for col in range(sheet.ncols)]
+            raise UserError(f'Error inesperado al procesar el archivo: {str(e)}')
 
         # Procesar clientes
         partner_obj = self.env['res.partner']
@@ -58,8 +113,8 @@ class ImportCustomersWizard(models.TransientModel):
         clientes_creados = 0
         clientes_actualizados = 0
 
-        # Procesar cada fila (empezando desde la fila 1, saltando encabezados)
-        for row_idx in range(1, sheet.nrows):
+        # Procesar cada fila
+        for row in rows_data:
             # Crear diccionario de la fila actual
             row = {}
             for col_idx, header in enumerate(headers):
