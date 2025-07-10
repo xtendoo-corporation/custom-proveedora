@@ -76,39 +76,56 @@ class ImportProductsWizard(models.TransientModel):
             if str(row.get('ARTICULO_OBSOLETO', '')).strip().lower() == 'si':
                 continue
             # Solo crear o actualizar producto si tiene CODIGO y DESCRIPCION
-            codigo = str(row.get('CODIGO', '')).strip()
-            descripcion = str(row.get('DESCRIPCION', '')).strip()
-            if not codigo or not descripcion or codigo == 'nan':
+            codigo_raw = row.get('CODIGO', '')
+            descripcion_raw = row.get('DESCRIPCION', '')
+
+            # Convertir a string y limpiar, manejando diferentes tipos de datos
+            if isinstance(codigo_raw, float):
+                if codigo_raw == int(codigo_raw):  # Si es un entero disfrazado de float
+                    codigo = str(int(codigo_raw)).strip()
+                else:
+                    codigo = str(codigo_raw).strip()
+            else:
+                codigo = str(codigo_raw).strip()
+
+            if isinstance(descripcion_raw, float):
+                descripcion = str(descripcion_raw).strip()
+            else:
+                descripcion = str(descripcion_raw).strip()
+
+            # Validar que no estén vacíos
+            if not codigo or not descripcion or codigo == 'nan' or descripcion == 'nan':
                 continue
 
             # Buscar producto existente por CODIGO (default_code) ANTES de crear vals
             print("*" * 80)
-            print("Buscando producto con código:", repr(codigo))
-            print("Tipo de código:", type(codigo))
-            print("Longitud del código:", len(codigo))
+            print("Código raw del Excel:", repr(codigo_raw), "tipo:", type(codigo_raw))
+            print("Código procesado:", repr(codigo))
+            print("Descripción raw del Excel:", repr(descripcion_raw), "tipo:", type(descripcion_raw))
+            print("Descripción procesada:", repr(descripcion))
 
             # Buscar productos existentes para comparar
             all_products_with_code = product_obj.search([('default_code', '!=', False)])
             print("Total productos con código en sistema:", len(all_products_with_code))
 
+            # Mostrar algunos ejemplos de códigos existentes
+            if all_products_with_code:
+                example_codes = all_products_with_code[:5].mapped('default_code')
+                print("Ejemplos de códigos existentes:", example_codes)
+
             # Buscar exacto
             product = product_obj.search([('default_code', '=', codigo)], limit=1)
             print("Búsqueda exacta resultado:", product)
 
-            # Buscar con trim por si hay espacios
-            product_trim = product_obj.search([('default_code', '=', codigo.strip())], limit=1)
-            print("Búsqueda con strip resultado:", product_trim)
-
-            # Buscar case insensitive
-            product_ilike = product_obj.search([('default_code', 'ilike', codigo)], limit=1)
-            print("Búsqueda ilike resultado:", product_ilike)
-
-            # Usar el mejor resultado encontrado
-            product = product or product_trim or product_ilike
+            # Si no encuentra, intentar con búsqueda más flexible
+            if not product:
+                # Buscar sin distinguir mayúsculas/minúsculas
+                product = product_obj.search([('default_code', '=ilike', codigo)], limit=1)
+                print("Búsqueda ilike resultado:", product)
 
             print("Producto final seleccionado:", product)
             if product:
-                print("Producto encontrado - ID:", product.id, "Nombre:", product.name, "Código:", product.default_code)
+                print("Producto encontrado - ID:", product.id, "Nombre:", product.name, "Código actual:", repr(product.default_code))
 
             categ = categ_obj.search([('name', '=', row.get('NIVEL1', 'Sin categoría'))], limit=1)
             if not categ:
