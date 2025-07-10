@@ -38,29 +38,16 @@ class ImportProductsWizard(models.TransientModel):
 
         # Buscar impuestos de venta y compra por separado
         iva_21_venta = tax_obj.search([
-            ('name', 'ilike', 'IVA 21%'),
+            ('name', '=', '21% G'),
             ('type_tax_use', '=', 'sale'),
             ('amount', '=', 21)
         ], limit=1)
 
         iva_21_compra = tax_obj.search([
-            ('name', 'ilike', 'IVA 21%'),
+            ('name', '=', '21% G'),
             ('type_tax_use', '=', 'purchase'),
             ('amount', '=', 21)
         ], limit=1)
-
-        # Si no encuentra por nombre, buscar por description
-        if not iva_21_venta:
-            iva_21_venta = tax_obj.search([
-                ('description', '=', 'IVA 21% (Bienes)'),
-                ('type_tax_use', '=', 'sale')
-            ], limit=1)
-
-        if not iva_21_compra:
-            iva_21_compra = tax_obj.search([
-                ('description', '=', 'IVA 21% (Bienes)'),
-                ('type_tax_use', '=', 'purchase')
-            ], limit=1)
 
         # Contadores para el mensaje final
         productos_creados = 0
