@@ -14,9 +14,20 @@ class ImportCustomersWizard(models.TransientModel):
     def action_import(self):
         if not self.file:
             raise UserError('Debe adjuntar un archivo.')
-        data = base64.b64decode(self.file)
-        workbook = xlrd.open_workbook(file_contents=data)
-        sheet = workbook.sheet_by_index(0)  # Primera hoja
+
+        try:
+            data = base64.b64decode(self.file)
+            workbook = xlrd.open_workbook(file_contents=data)
+            sheet = workbook.sheet_by_index(0)  # Primera hoja
+        except Exception as e:
+            if "BIFF2 cell record" in str(e) or "XLRDError" in str(e):
+                raise UserError('Error al leer el archivo Excel. Por favor:\n'
+                              '1. Guarda el archivo como Excel 97-2003 (.xls)\n'
+                              '2. Asegúrate de que no esté corrupto\n'
+                              '3. Evita formatos muy antiguos de Excel\n\n'
+                              f'Error técnico: {str(e)}')
+            else:
+                raise UserError(f'Error al procesar el archivo: {str(e)}')
 
         # Obtener encabezados de la primera fila
         headers = [sheet.cell_value(0, col) for col in range(sheet.ncols)]
