@@ -120,8 +120,14 @@ class ImportProductsWizard(models.TransientModel):
                 'taxes_id': [(6, 0, [iva_21_venta.id])] if iva_21_venta else False,
                 'supplier_taxes_id': [(6, 0, [iva_21_compra.id])] if iva_21_compra else False,
                 'invoice_policy': 'delivery',
-                'detailed_type': 'product',  # Volver a detailed_type con valor 'product'
             }
+
+            # Añadir el campo de tipo de producto de forma dinámica
+            if 'detailed_type' in product_obj._fields:
+                vals['detailed_type'] = 'product'
+            elif 'type' in product_obj._fields:
+                vals['type'] = 'product'
+            # Si no existe ninguno, Odoo usará el valor por defecto
 
             # Crear o actualizar producto
             if product:
