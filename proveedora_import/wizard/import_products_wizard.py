@@ -32,7 +32,7 @@ class ImportProductsWizard(models.TransientModel):
             pricelists[name] = pricelist
 
         # Procesar productos
-        product_obj = self.env['product.product']
+        product_obj = self.env['product.template']  # Cambiar a product.template
         categ_obj = self.env['product.category']
         tax_obj = self.env['account.tax']
 
@@ -75,6 +75,7 @@ class ImportProductsWizard(models.TransientModel):
 
             if str(row.get('ARTICULO_OBSOLETO', '')).strip().lower() == 'si':
                 continue
+
             # Solo crear o actualizar producto si tiene CODIGO y DESCRIPCION
             codigo_raw = row.get('CODIGO', '')
             descripcion_raw = row.get('DESCRIPCION', '')
@@ -97,35 +98,10 @@ class ImportProductsWizard(models.TransientModel):
             if not codigo or not descripcion or codigo == 'nan' or descripcion == 'nan':
                 continue
 
-            # Buscar producto existente por CODIGO (default_code) ANTES de crear vals
-            print("*" * 80)
-            print("Código raw del Excel:", repr(codigo_raw), "tipo:", type(codigo_raw))
-            print("Código procesado:", repr(codigo))
-            print("Descripción raw del Excel:", repr(descripcion_raw), "tipo:", type(descripcion_raw))
-            print("Descripción procesada:", repr(descripcion))
-
-            # Buscar productos existentes para comparar
-            all_products_with_code = product_obj.search([('default_code', '!=', False)])
-            print("Total productos con código en sistema:", len(all_products_with_code))
-
-            # Mostrar algunos ejemplos de códigos existentes
-            if all_products_with_code:
-                example_codes = all_products_with_code[:5].mapped('default_code')
-                print("Ejemplos de códigos existentes:", example_codes)
-
-            # Buscar exacto
+            # Buscar producto existente por CODIGO (default_code)
+            # Limpiar caché y forzar nueva búsqueda
+            self.env.invalidate_all()
             product = product_obj.search([('default_code', '=', codigo)], limit=1)
-            print("Búsqueda exacta resultado:", product)
-
-            # Si no encuentra, intentar con búsqueda más flexible
-            if not product:
-                # Buscar sin distinguir mayúsculas/minúsculas
-                product = product_obj.search([('default_code', '=ilike', codigo)], limit=1)
-                print("Búsqueda ilike resultado:", product)
-
-            print("Producto final seleccionado:", product)
-            if product:
-                print("Producto encontrado - ID:", product.id, "Nombre:", product.name, "Código actual:", repr(product.default_code))
 
             categ = categ_obj.search([('name', '=', row.get('NIVEL1', 'Sin categoría'))], limit=1)
             if not categ:
@@ -139,12 +115,12 @@ class ImportProductsWizard(models.TransientModel):
                 'default_code': codigo,
                 'categ_id': categ.id,
                 'active': not bool(row.get('ARTICULO_BLOQUEADO', False)),
-                'lst_price': precio_venta,
+                'list_price': precio_venta,  # Cambiar lst_price por list_price para product.template
                 'standard_price': precio_coste,
                 'taxes_id': [(6, 0, [iva_21_venta.id])] if iva_21_venta else False,
                 'supplier_taxes_id': [(6, 0, [iva_21_compra.id])] if iva_21_compra else False,
                 'invoice_policy': 'delivery',
-                'is_storable': True,
+                'detailed_type': 'product',  # Cambiar is_storable por detailed_type
             }
 
             # Crear o actualizar producto
