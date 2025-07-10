@@ -4,7 +4,7 @@
     'version': '18.0.1.0.0',
     'category': 'Tools',
     'summary': 'Importador de productos y tarifas desde hoja de cálculo',
-    'author': 'Tu Empresa',
+    'author': 'Xtendoo Software SLU',
     'website': '',
     'depends': [
         'product',
