@@ -66,6 +66,10 @@ class ImportProductsWizard(models.TransientModel):
             debug_info.append("IVA Compra: NO ENCONTRADO")
 
         # Procesar cada fila (empezando desde la fila 1, saltando encabezados)
+        print(f"Total de filas en el Excel: {sheet.nrows}")
+        print(f"Total de columnas en el Excel: {sheet.ncols}")
+        print(f"Encabezados encontrados: {headers}")
+
         for row_idx in range(1, sheet.nrows):
             # Crear diccionario de la fila actual
             row = {}
@@ -73,12 +77,17 @@ class ImportProductsWizard(models.TransientModel):
                 if col_idx < sheet.ncols:
                     row[header] = sheet.cell_value(row_idx, col_idx)
 
+            print(f"Procesando fila {row_idx}: {dict(list(row.items())[:5])}")  # Mostrar primeros 5 campos
+
             if str(row.get('ARTICULO_OBSOLETO', '')).strip().lower() == 'si':
+                print(f"Fila {row_idx} omitida: producto obsoleto")
                 continue
 
             # Solo crear o actualizar producto si tiene CODIGO y DESCRIPCION
             codigo_raw = row.get('CODIGO', '')
             descripcion_raw = row.get('DESCRIPCION', '')
+
+            print(f"Fila {row_idx} - CODIGO raw: {repr(codigo_raw)}, DESCRIPCION raw: {repr(descripcion_raw)}")
 
             # Convertir a string y limpiar, manejando diferentes tipos de datos
             if isinstance(codigo_raw, float):
@@ -94,13 +103,16 @@ class ImportProductsWizard(models.TransientModel):
             else:
                 descripcion = str(descripcion_raw).strip()
 
+            print(f"Fila {row_idx} - CODIGO procesado: {repr(codigo)}, DESCRIPCION procesada: {repr(descripcion)}")
+
             # Validar que no estén vacíos
             if not codigo or not descripcion or codigo == 'nan' or descripcion == 'nan':
+                print(f"Fila {row_idx} omitida: código o descripción vacíos")
                 continue
 
+            print(f"Fila {row_idx} - Producto válido, procediendo a crear/actualizar")
+
             # Buscar producto existente por CODIGO (default_code)
-            # Limpiar caché y forzar nueva búsqueda
-            self.env.invalidate_all()
             product = product_obj.search([('default_code', '=', codigo)], limit=1)
 
             categ = categ_obj.search([('name', '=', row.get('NIVEL1', 'Sin categoría'))], limit=1)
