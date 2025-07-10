@@ -1,3 +1,7 @@
 <odoo>
-    <menuitem id="menu_proveedora_import_wizard" name="Importar productos y tarifas" parent="base.menu_administration" action="action_import_products_wizard" sequence="1"/>
+    <menuitem id="menu_proveedora_import_root" name="Importar datos de Proveedora" parent="base.menu_administration" sequence="100"/>
+
+    <menuitem id="menu_proveedora_import_wizard" name="Importar productos y tarifas" parent="menu_proveedora_import_root" action="action_import_products_wizard" sequence="1"/>
+
+    <menuitem id="menu_proveedora_import_customers_wizard" name="Importar clientes" parent="menu_proveedora_import_root" action="action_import_customers_wizard" sequence="2"/>
 </odoo>

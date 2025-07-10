@@ -112,6 +112,7 @@ class ImportProductsWizard(models.TransientModel):
                 'name': descripcion,
                 'default_code': codigo,
                 'categ_id': categ.id,
+                'is_storable': True,
                 'active': not bool(row.get('ARTICULO_BLOQUEADO', False)),
                 'lst_price': precio_venta,
                 'standard_price': precio_coste,

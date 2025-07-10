@@ -16,6 +16,7 @@
     'data': [
         'security/ir.model.access.csv',
         'wizard/import_products_wizard_view.xml',
+        'wizard/import_customers_wizard_view.xml',
         'views/menu.xml',
     ],
     'installable': True,
