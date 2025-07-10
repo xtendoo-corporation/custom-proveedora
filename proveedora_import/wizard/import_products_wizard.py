@@ -78,8 +78,12 @@ class ImportProductsWizard(models.TransientModel):
             # Solo crear o actualizar producto si tiene CODIGO y DESCRIPCION
             codigo = str(row.get('CODIGO', '')).strip()
             descripcion = str(row.get('DESCRIPCION', '')).strip()
-            if not codigo or not descripcion:
+            if not codigo or not descripcion or codigo == 'nan':
                 continue
+
+            # Buscar producto existente por CODIGO (default_code) ANTES de crear vals
+            product = product_obj.search([('default_code', '=', codigo)], limit=1)
+
             categ = categ_obj.search([('name', '=', row.get('NIVEL1', 'Sin categoría'))], limit=1)
             if not categ:
                 categ = categ_obj.create({'name': row.get('NIVEL1', 'Sin categoría')})
@@ -99,8 +103,8 @@ class ImportProductsWizard(models.TransientModel):
                 'invoice_policy': 'delivery',
                 'is_storable': True,
             }
-            # Buscar producto por CODIGO (default_code)
-            product = product_obj.search([('default_code', '=', codigo)], limit=1)
+
+            # Crear o actualizar producto
             if product:
                 product.write(vals)
                 productos_actualizados += 1
