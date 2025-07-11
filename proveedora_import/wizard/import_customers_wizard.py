@@ -138,7 +138,13 @@ class ImportCustomersWizard(models.TransientModel):
         country_obj = self.env['res.country']
         state_obj = self.env['res.country.state']
         bank_obj = self.env['res.partner.bank']
-        mandate_obj = self.env['account.banking.mandate']
+
+        # Verificar si el módulo de mandatos bancarios está disponible
+        mandate_obj = None
+        try:
+            mandate_obj = self.env['account.banking.mandate']
+        except KeyError:
+            _logger.warning("El módulo de mandatos bancarios no está disponible. Se omitirá la creación de mandatos.")
 
         # Contadores para el mensaje final
         clientes_creados = 0
@@ -294,7 +300,7 @@ class ImportCustomersWizard(models.TransientModel):
                             bank_account = existing_bank
 
                         # Crear mandato bancario automáticamente si no existe
-                        if bank_account:
+                        if bank_account and mandate_obj:
                             existing_mandate = mandate_obj.search([
                                 ('partner_bank_id', '=', bank_account.id),
                                 ('partner_id', '=', partner.id)

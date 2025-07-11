@@ -12,6 +12,7 @@
         'stock',
         'sale',
         'base',
+        'account_banking_mandate',
     ],
     'data': [
         'security/ir.model.access.csv',
