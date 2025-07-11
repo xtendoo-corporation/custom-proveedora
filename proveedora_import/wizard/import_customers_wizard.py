@@ -3,6 +3,9 @@ from odoo.exceptions import UserError
 import base64
 import io
 import xlrd
+import logging
+
+_logger = logging.getLogger(__name__)
 
 try:
     import openpyxl
@@ -88,6 +91,32 @@ class ImportCustomersWizard(models.TransientModel):
             raise UserError('El archivo no parece ser un Excel válido (.xls o .xlsx). '
                           'Por favor, sube un archivo Excel válido.')
 
+    def _safe_str(self, value):
+        """Convierte valor a string de forma segura"""
+        if value is None or value == '':
+            return ''
+        if isinstance(value, float):
+            if value == int(value):
+                return str(int(value)).strip()
+            else:
+                return str(value).strip()
+        return str(value).strip()
+
+    def _validate_vat(self, vat_value):
+        """Validar y limpiar número de IVA"""
+        if not vat_value:
+            return False
+
+        vat_clean = self._safe_str(vat_value).upper()
+        if not vat_clean or vat_clean in ['NAN', 'NONE', '']:
+            return False
+
+        # Si no tiene prefijo de país, agregar ES
+        if len(vat_clean) > 2 and not vat_clean[:2].isalpha():
+            vat_clean = 'ES' + vat_clean
+
+        return vat_clean
+
     def action_import(self):
         if not self.file:
             raise UserError('Debe adjuntar un archivo.')
@@ -108,6 +137,8 @@ class ImportCustomersWizard(models.TransientModel):
         partner_obj = self.env['res.partner']
         country_obj = self.env['res.country']
         state_obj = self.env['res.country.state']
+        bank_obj = self.env['res.partner.bank']
+        mandate_obj = self.env['account.banking.mandate']
 
         # Contadores para el mensaje final
         clientes_creados = 0
@@ -116,47 +147,40 @@ class ImportCustomersWizard(models.TransientModel):
         errores_detalle = []
 
         # Procesar cada fila
-        for row in rows_data:
+        for row_idx, row in enumerate(rows_data, start=2):  # +2 porque empezamos en fila 2 del Excel
             try:
                 # Solo crear o actualizar cliente si tiene CODIGO y NOMBRE
                 codigo_raw = row.get('CODIGO', '')
                 nombre_raw = row.get('NOMBRE', '')
 
-                # Convertir a string y limpiar
-                if isinstance(codigo_raw, float):
-                    if codigo_raw == int(codigo_raw):
-                        codigo = str(int(codigo_raw)).strip()
-                    else:
-                        codigo = str(codigo_raw).strip()
-                else:
-                    codigo = str(codigo_raw).strip() if codigo_raw else ''
-
-                if isinstance(nombre_raw, float):
-                    nombre = str(nombre_raw).strip()
-                else:
-                    nombre = str(nombre_raw).strip() if nombre_raw else ''
+                codigo = self._safe_str(codigo_raw)
+                nombre = self._safe_str(nombre_raw)
 
                 # Validar que no estén vacíos
-                if not codigo or not nombre or codigo == 'nan' or nombre == 'nan' or codigo == 'None' or nombre == 'None':
+                if not codigo or not nombre or codigo.lower() in ['nan', 'none'] or nombre.lower() in ['nan', 'none']:
                     continue
 
-                # Buscar cliente existente por CODIGO (ref)
+                # Buscar cliente existente por CODIGO (usando ref)
                 partner = partner_obj.search([('ref', '=', codigo)], limit=1)
 
                 # Buscar o crear país
                 pais = None
                 if row.get('PAIS'):
-                    pais = country_obj.search([('name', 'ilike', str(row.get('PAIS')).strip())], limit=1)
-                    if not pais:
-                        pais = country_obj.search([('code', 'ilike', str(row.get('PAIS')).strip())], limit=1)
+                    pais_name = self._safe_str(row.get('PAIS'))
+                    if pais_name and pais_name.lower() not in ['nan', 'none']:
+                        pais = country_obj.search([('name', 'ilike', pais_name)], limit=1)
+                        if not pais:
+                            pais = country_obj.search([('code', 'ilike', pais_name)], limit=1)
 
                 # Buscar o crear provincia/estado
                 provincia = None
                 if row.get('PROVINCIA') and pais:
-                    provincia = state_obj.search([
-                        ('name', 'ilike', str(row.get('PROVINCIA')).strip()),
-                        ('country_id', '=', pais.id)
-                    ], limit=1)
+                    provincia_name = self._safe_str(row.get('PROVINCIA'))
+                    if provincia_name and provincia_name.lower() not in ['nan', 'none']:
+                        provincia = state_obj.search([
+                            ('name', 'ilike', provincia_name),
+                            ('country_id', '=', pais.id)
+                        ], limit=1)
 
                 # Preparar valores del cliente
                 vals = {
@@ -165,125 +189,163 @@ class ImportCustomersWizard(models.TransientModel):
                     'is_company': True,  # Por defecto como empresa
                     'customer_rank': 1,  # Marcar como cliente
                     'supplier_rank': 0,  # No es proveedor
-                    'vat': str(row.get('CIF', '')).strip() if row.get('CIF') else False,
-                    'street': str(row.get('DIRECCION', '')).strip() if row.get('DIRECCION') else False,
-                    'city': str(row.get('POBLACION', '')).strip() if row.get('POBLACION') else False,
-                    'zip': str(row.get('C_POSTAL', '')).strip() if row.get('C_POSTAL') else False,
-                    'country_id': pais.id if pais else False,
-                    'state_id': provincia.id if provincia else False,
-                    'phone': str(row.get('TELEFONO1', '')).strip() if row.get('TELEFONO1') else False,
-                    'mobile': str(row.get('MOVIL', '')).strip() if row.get('MOVIL') else False,
-                    'email': str(row.get('EMAIL', '')).strip() if row.get('EMAIL') else False,
-                    'website': str(row.get('WWW', '')).strip() if row.get('WWW') else False,
-                    'active': str(row.get('ACTIVO', '')).strip().lower() != 'no',
                 }
 
+                # Campos opcionales
+                vat = self._validate_vat(row.get('CIF'))
+                if vat:
+                    vals['vat'] = vat
+
+                street = self._safe_str(row.get('DIRECCION'))
+                if street and street.lower() not in ['nan', 'none']:
+                    vals['street'] = street
+
+                city = self._safe_str(row.get('POBLACION'))
+                if city and city.lower() not in ['nan', 'none']:
+                    vals['city'] = city
+
+                zip_code = self._safe_str(row.get('C_POSTAL'))
+                if zip_code and zip_code.lower() not in ['nan', 'none']:
+                    vals['zip'] = zip_code
+
+                if pais:
+                    vals['country_id'] = pais.id
+
+                if provincia:
+                    vals['state_id'] = provincia.id
+
+                phone = self._safe_str(row.get('TELEFONO1'))
+                if phone and phone.lower() not in ['nan', 'none']:
+                    vals['phone'] = phone
+
+                mobile = self._safe_str(row.get('MOVIL'))
+                if mobile and mobile.lower() not in ['nan', 'none']:
+                    vals['mobile'] = mobile
+
+                email = self._safe_str(row.get('EMAIL'))
+                if email and email.lower() not in ['nan', 'none'] and '@' in email:
+                    vals['email'] = email
+
+                website = self._safe_str(row.get('WWW'))
+                if website and website.lower() not in ['nan', 'none']:
+                    vals['website'] = website
+
+                # Campo activo
+                activo = self._safe_str(row.get('ACTIVO', 'Si'))
+                vals['active'] = activo.lower() not in ['no', 'false', '0', 'inactivo']
+
                 # Campos adicionales específicos
-                if row.get('NOMBRE_COMERCIAL'):
-                    vals['commercial_company_name'] = str(row.get('NOMBRE_COMERCIAL')).strip()
+                nombre_comercial = self._safe_str(row.get('NOMBRE_COMERCIAL'))
+                if nombre_comercial and nombre_comercial.lower() not in ['nan', 'none']:
+                    vals['commercial_company_name'] = nombre_comercial
 
-                # El campo fax no existe en Odoo 18.0, usar phone2 o comment
-                if row.get('TELEFONO2'):
-                    # Agregar al comentario si hay persona de contacto, o crear un comentario nuevo
-                    telefono2_info = f"Teléfono 2: {str(row.get('TELEFONO2')).strip()}"
-                    if vals.get('comment'):
-                        vals['comment'] += f"\n{telefono2_info}"
-                    else:
-                        vals['comment'] = telefono2_info
+                # Agregar información adicional en comentarios
+                comment_parts = []
 
-                if row.get('PERSONA_DE_CONTACTO'):
-                    contacto_info = f"Persona de contacto: {str(row.get('PERSONA_DE_CONTACTO')).strip()}"
-                    if vals.get('comment'):
-                        vals['comment'] += f"\n{contacto_info}"
-                    else:
-                        vals['comment'] = contacto_info
+                telefono2 = self._safe_str(row.get('TELEFONO2'))
+                if telefono2 and telefono2.lower() not in ['nan', 'none']:
+                    comment_parts.append(f"Teléfono 2: {telefono2}")
+
+                persona_contacto = self._safe_str(row.get('PERSONA_DE_CONTACTO'))
+                if persona_contacto and persona_contacto.lower() not in ['nan', 'none']:
+                    comment_parts.append(f"Persona de contacto: {persona_contacto}")
+
+                if comment_parts:
+                    vals['comment'] = '\n'.join(comment_parts)
 
                 # Crear o actualizar cliente
                 if partner:
-                    partner.write(vals)
+                    # Actualizar cliente existente
+                    partner.with_context(skip_vat_validation=True).write(vals)
                     clientes_actualizados += 1
+                    _logger.info(f"Cliente actualizado: {codigo} - {nombre}")
                 else:
-                    partner = partner_obj.create(vals)
+                    # Crear nuevo cliente
+                    partner = partner_obj.with_context(skip_vat_validation=True).create(vals)
                     clientes_creados += 1
+                    _logger.info(f"Cliente creado: {codigo} - {nombre}")
 
-                # Crear dirección comercial si es diferente
-                direccion_comercial = str(row.get('DIRECCION_COMERCIAL', '')).strip()
-                if direccion_comercial and direccion_comercial != vals.get('street', ''):
-                    # Buscar país comercial
-                    pais_comercial = None
-                    if row.get('PAIS_COMERCIAL'):
-                        pais_comercial = country_obj.search([('name', 'ilike', str(row.get('PAIS_COMERCIAL')).strip())], limit=1)
-                        if not pais_comercial:
-                            pais_comercial = country_obj.search([('code', 'ilike', str(row.get('PAIS_COMERCIAL')).strip())], limit=1)
-
-                    # Buscar provincia comercial
-                    provincia_comercial = None
-                    if row.get('PROVINCIA_COMERCIAL') and pais_comercial:
-                        provincia_comercial = state_obj.search([
-                            ('name', 'ilike', str(row.get('PROVINCIA_COMERCIAL')).strip()),
-                            ('country_id', '=', pais_comercial.id)
+                # Procesar IBAN_A como banco del cliente
+                iban_a = self._safe_str(row.get('IBAN_A'))
+                if iban_a and iban_a.lower() not in ['nan', 'none'] and partner:
+                    try:
+                        # Buscar si ya existe una cuenta bancaria para este partner
+                        existing_bank = bank_obj.search([
+                            ('partner_id', '=', partner.id),
+                            ('acc_number', '=', iban_a)
                         ], limit=1)
 
-                    # Crear dirección comercial como contacto hijo
-                    direccion_vals = {
-                        'name': f"Dirección comercial - {nombre}",
-                        'parent_id': partner.id,
-                        'type': 'delivery',
-                        'street': direccion_comercial,
-                        'city': str(row.get('POBLACION_COMERCIAL', '')).strip() if row.get('POBLACION_COMERCIAL') else False,
-                        'zip': str(row.get('C_POSTAL_COMERCIAL', '')).strip() if row.get('C_POSTAL_COMERCIAL') else False,
-                        'country_id': pais_comercial.id if pais_comercial else False,
-                        'state_id': provincia_comercial.id if provincia_comercial else False,
-                        'phone': str(row.get('TELEFONO1_COMERCIAL', '')).strip() if row.get('TELEFONO1_COMERCIAL') else False,
-                        'mobile': str(row.get('MOVIL_COMERCIAL', '')).strip() if row.get('MOVIL_COMERCIAL') else False,
-                    }
+                        bank_account = None
+                        if not existing_bank:
+                            # Crear nueva cuenta bancaria
+                            bank_vals = {
+                                'partner_id': partner.id,
+                                'acc_number': iban_a,
+                            }
 
-                    if row.get('PERSONA_DE_CONTACTO_COMERCIAL'):
-                        direccion_vals['comment'] = f"Persona de contacto: {str(row.get('PERSONA_DE_CONTACTO_COMERCIAL')).strip()}"
+                            # Si hay BIC_A, agregarlo
+                            bic_a = self._safe_str(row.get('BIC_A'))
+                            if bic_a and bic_a.lower() not in ['nan', 'none']:
+                                bank_vals['bank_bic'] = bic_a
 
-                    partner_obj.create(direccion_vals)
+                            bank_account = bank_obj.create(bank_vals)
+                            _logger.info(f"Cuenta bancaria creada para cliente {codigo}: {iban_a}")
+                        else:
+                            bank_account = existing_bank
+
+                        # Crear mandato bancario automáticamente si no existe
+                        if bank_account:
+                            existing_mandate = mandate_obj.search([
+                                ('partner_bank_id', '=', bank_account.id),
+                                ('partner_id', '=', partner.id)
+                            ], limit=1)
+
+                            if not existing_mandate:
+                                # Crear nuevo mandato bancario
+                                mandate_vals = {
+                                    'partner_id': partner.id,
+                                    'partner_bank_id': bank_account.id,
+                                    'signature_date': fields.Date.today(),
+                                    'state': 'valid',
+                                    'scheme': 'CORE',  # Esquema SEPA CORE por defecto
+                                }
+
+                                mandate_obj.create(mandate_vals)
+                                _logger.info(f"Mandato bancario creado para cliente {codigo}: {iban_a}")
+
+                    except Exception as bank_error:
+                        _logger.warning(f"Error al crear cuenta bancaria/mandato para cliente {codigo}: {str(bank_error)}")
 
             except Exception as e:
-                # Capturar errores individuales y continuar con el siguiente cliente
+                # Capturar errores y continuar con el siguiente cliente
                 clientes_con_errores += 1
-                error_msg = str(e)
+                error_msg = f"Fila {row_idx}: {str(e)}"
+                errores_detalle.append(error_msg)
+                _logger.error(f"Error al procesar cliente en fila {row_idx}: {str(e)}")
+                continue
 
-                # Extraer información del cliente para el log de errores
-                cliente_info = f"Código: {codigo if 'codigo' in locals() else 'N/A'}, Nombre: {nombre if 'nombre' in locals() else 'N/A'}"
+        # Mensaje de resultado
+        mensaje = f"""
+✅ Importación de clientes completada
 
-                # Simplificar el mensaje de error para errores comunes
-                if "número de IVA" in error_msg.lower() or "vat" in error_msg.lower():
-                    error_simple = "Error de validación de IVA"
-                elif "email" in error_msg.lower():
-                    error_simple = "Error de validación de email"
-                else:
-                    error_simple = "Error de validación"
+📊 Resumen:
+• Clientes creados: {clientes_creados}
+• Clientes actualizados: {clientes_actualizados}
+• Errores encontrados: {clientes_con_errores}
+"""
 
-                errores_detalle.append(f"{cliente_info}: {error_simple}")
-
-                # Limitar el número de errores mostrados para evitar mensajes muy largos
-                if len(errores_detalle) <= 10:
-                    continue
-
-        # Mensaje de confirmación al finalizar
-        message = f"Importación de clientes completada:\n• {clientes_creados} clientes creados\n• {clientes_actualizados} clientes actualizados"
-
-        if clientes_con_errores > 0:
-            message += f"\n• {clientes_con_errores} clientes con errores (omitidos)"
-            if errores_detalle:
-                message += "\n\nPrimeros errores encontrados:"
-                for error in errores_detalle[:5]:  # Mostrar solo los primeros 5 errores
-                    message += f"\n- {error}"
-                if len(errores_detalle) > 5:
-                    message += f"\n... y {len(errores_detalle) - 5} errores más"
+        if errores_detalle:
+            mensaje += f"\n⚠️ Errores encontrados:\n" + "\n".join(errores_detalle[:10])
+            if len(errores_detalle) > 10:
+                mensaje += f"\n... y {len(errores_detalle) - 10} errores más"
 
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
             'params': {
-                'title': 'Importación de clientes finalizada',
-                'message': message,
-                'type': 'success' if clientes_con_errores == 0 else 'warning',
-                'sticky': True if clientes_con_errores > 0 else False,
+                'title': 'Importación completada',
+                'message': mensaje,
+                'type': 'success',
+                'sticky': True,
             }
         }
