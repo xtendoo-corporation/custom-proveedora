@@ -162,6 +162,8 @@ class ImportCustomersWizard(models.TransientModel):
                 codigo = self._safe_str(codigo_raw)
                 nombre = self._safe_str(nombre_raw)
 
+                print("processing row:", row_idx, "CODIGO:", codigo, "NOMBRE:", nombre)
+
                 # Validar que no estén vacíos
                 if not codigo or not nombre or codigo.lower() in ['nan', 'none'] or nombre.lower() in ['nan', 'none']:
                     continue
